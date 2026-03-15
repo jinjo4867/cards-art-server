@@ -10,15 +10,16 @@ function s.initial_effect(c)
 	e0:SetCode(EVENT_FREE_CHAIN)
 	c:RegisterEffect(e0)
 
-	-- 1. [Start Battle Phase] Instant Flip & Lock
+	-- 1. [Start Battle Phase] Force Opponent to Bounce Face-up S/T
 	local e1=Effect.CreateEffect(c)
 	e1:SetDescription(aux.Stringid(id,2))
 	e1:SetType(EFFECT_TYPE_FIELD+EFFECT_TYPE_CONTINUOUS) 
 	e1:SetCode(EVENT_PHASE+PHASE_BATTLE_START)
 	e1:SetRange(LOCATION_SZONE)
 	e1:SetCountLimit(1)
-	e1:SetCondition(s.setcon)
-	e1:SetOperation(s.setop)
+	e1:SetProperty(EFFECT_FLAG_IGNORE_IMMUNE)
+	e1:SetCondition(s.bounce_con)
+	e1:SetOperation(s.bounce_op)
 	c:RegisterEffect(e1)
 
 	-- 2. [Battle Phase] Immunity & Debuff (-400)
@@ -70,31 +71,20 @@ end
 -- Logic Functions
 -- ==================================================================
 
--- 1. Face-Down Logic (Updated with Lock)
+-- 1. Force Bounce Logic (ทะลุเกราะอมตะ)
 function s.nikke_check(c) return c:IsFaceup() and c:IsSetCard(NIKKE_SET_ID) end
-function s.setcon(e,tp,eg,ep,ev,re,r,rp)
+
+function s.bounce_con(e,tp,eg,ep,ev,re,r,rp)
 	return Duel.IsExistingMatchingCard(s.nikke_check, tp, LOCATION_MZONE, 0, 1, nil)
 end
-function s.setfilter(c)
-	return c:IsFaceup() and c:IsType(TYPE_SPELL+TYPE_TRAP) and not c:IsSetCard(NIKKE_SET_ID)
-end
-function s.setop(e,tp,eg,ep,ev,re,r,rp)
-	local g=Duel.GetMatchingGroup(s.setfilter,tp,0,LOCATION_ONFIELD,nil)
+
+function s.bounce_op(e,tp,eg,ep,ev,re,r,rp)
+	-- หาการ์ดหงายหน้าในโซน S/T และ Field Zone ของอีกฝ่าย
+	local g=Duel.GetMatchingGroup(Card.IsFaceup,tp,0,LOCATION_SZONE+LOCATION_FZONE,nil)
 	if #g>0 then
 		Duel.Hint(HINT_CARD,0,id)
-		-- เปลี่ยนเป็นคว่ำหน้า
-		if Duel.ChangePosition(g,POS_FACEDOWN) > 0 then
-			-- ล็อคการ์ดที่ถูกคว่ำ (ห้าม Activate/หงาย)
-			local og = Duel.GetOperatedGroup()
-			for tc in aux.Next(og) do
-				local e1=Effect.CreateEffect(e:GetHandler())
-				e1:SetType(EFFECT_TYPE_SINGLE)
-				e1:SetCode(EFFECT_CANNOT_ACTIVATE) -- ห้ามเปิดใช้งาน
-				e1:SetProperty(EFFECT_FLAG_CANNOT_DISABLE)
-				e1:SetReset(RESET_EVENT+RESETS_STANDARD+RESET_PHASE+PHASE_END)
-				tc:RegisterEffect(e1)
-			end
-		end
+		-- สั่งว่า "นี่คือกฎเกม ไม่ใช่เอฟเฟคการ์ด" ทำให้เด้งทะลุกันขึ้นมือได้ด้วย
+		Duel.SendtoHand(g,nil,REASON_RULE)
 	end
 end
 

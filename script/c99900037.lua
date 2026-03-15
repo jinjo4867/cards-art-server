@@ -8,7 +8,7 @@ local ID_NIKKE = 0xc02  -- Set code for Nikke
 function s.initial_effect(c)
 	-- Activate Effect (Quick-Play)
 	local e1=Effect.CreateEffect(c)
-	e1:SetCategory(CATEGORY_SPECIAL_SUMMON+CATEGORY_TODECK+CATEGORY_TOKEN)
+	e1:SetCategory(CATEGORY_SPECIAL_SUMMON+CATEGORY_TODECK+CATEGORY_TOKEN+CATEGORY_DRAW)
 	e1:SetType(EFFECT_TYPE_ACTIVATE)
 	e1:SetCode(EVENT_FREE_CHAIN)
 	e1:SetHintTiming(0,TIMINGS_CHECK_MONSTER+TIMING_END_PHASE)
@@ -39,9 +39,10 @@ function s.target(e,tp,eg,ep,ev,re,r,rp,chk)
 end
 
 function s.activate(e,tp,eg,ep,ev,re,r,rp)
-	-- 1. Shuffle Monsters
+	-- 1. Shuffle Monsters (Activate Phase)
 	local g=Duel.GetFieldGroup(tp,LOCATION_MZONE,0)
 	if #g>0 then
+		-- ส่วนนี้ยังเป็น Effect ปกติอยู่
 		Duel.SendtoDeck(g,nil,SEQ_DECKSHUFFLE,REASON_EFFECT)
 	end
 	
@@ -56,7 +57,7 @@ function s.activate(e,tp,eg,ep,ev,re,r,rp)
 	end
 	Duel.SpecialSummonComplete()
 	
-	-- 3. Watcher (Phase 1)
+	-- 3. Register Watcher (Phase 1)
 	Duel.RegisterFlagEffect(tp,id,RESET_PHASE+PHASE_END+RESET_SELF_TURN,0,1000,1)
 	
 	local e2=Effect.CreateEffect(e:GetHandler())
@@ -85,7 +86,7 @@ function s.check_op(e,tp,eg,ep,ev,re,r,rp)
 	if not state then return end 
 
 	if state == 1 then
-		-- [End Phase 1] -> Start Phase 2
+		-- [Phase 1 End] -> Start Phase 2
 		Duel.Hint(HINT_CARD,0,id)
 		
 		-- Summon 2nd Batch
@@ -99,82 +100,44 @@ function s.check_op(e,tp,eg,ep,ev,re,r,rp)
 			Duel.SpecialSummonComplete()
 		end
 		
-		-- Prepare Boss Logic
-		local has_boss = Duel.IsExistingMatchingCard(Card.IsCode, tp, LOCATION_EXTRA+LOCATION_GRAVE+LOCATION_REMOVED+LOCATION_ONFIELD, 0, 1, nil, ID_BOSS)
-		if not has_boss then
-			local boss_token = Duel.CreateToken(tp, ID_BOSS)
-			Duel.Remove(boss_token, POS_FACEUP, REASON_EFFECT)
-			Duel.Hint(HINT_CARD,0,ID_BOSS) 
-		end
-		
 		Duel.SetFlagEffectLabel(tp,id,2)
 		
 	elseif state == 2 then
-		-- [End Phase 2] -> Grand Finale
+		-- [Phase 2 End] -> Grand Finale
 		Duel.Hint(HINT_CARD,0,id)
 		
-		-- 1. Clear Field
+		-- 1. Shuffle ENTIRE Field
 		local g_all = Duel.GetFieldGroup(tp,LOCATION_ONFIELD,LOCATION_ONFIELD)
-		local g_opp_field = Duel.GetFieldGroup(tp,0,LOCATION_ONFIELD) 
-		local search_count = 0 
+		local total_shuffled = 0 
 		
-		if #g_opp_field > 0 then
-			 search_count = #g_opp_field
-		end
-
 		if #g_all > 0 then
-			Duel.SendtoDeck(g_all,nil,SEQ_DECKSHUFFLE,REASON_EFFECT)
+			-- [CHANGE] ใช้ REASON_RULE
+			total_shuffled = Duel.SendtoDeck(g_all,nil,SEQ_DECKSHUFFLE,REASON_RULE)
 		end
 			
-		-- 2. Forced Search
-		if search_count > 0 then
+		-- 2. Summon Boss from Over Deck (Create Token)
+		if Duel.GetLocationCount(tp,LOCATION_MZONE) > 0 then
 			Duel.BreakEffect()
+			local boss_token = Duel.CreateToken(tp, ID_BOSS)
 			
-			local g_deck = Duel.GetFieldGroup(tp,0,LOCATION_DECK)
-			if #g_deck < search_count then search_count = #g_deck end
-			
-			if search_count > 0 then
-				-- เปิดเด็คฝ่ายตรงข้าม (เพื่อให้เราเลือกได้)
-				Duel.ConfirmCards(tp, g_deck)
-				
-				Duel.Hint(HINT_SELECTMSG,tp,HINTMSG_ATOHAND)
-				local g_search = g_deck:Select(tp, search_count, search_count, nil)
-				
-				if #g_search > 0 then
-					-- ส่งเข้ามือเจ้าของ (nil)
-					Duel.SendtoHand(g_search, nil, REASON_EFFECT)
-					
-					-- [GLITCH FIX] ลบ ConfirmCards ออก
-					-- Duel.ConfirmCards(1-tp, g_search)
-					
-					-- สับเด็คฝ่ายตรงข้าม
-					Duel.ShuffleDeck(1-tp)
-					Duel.ShuffleHand(1-tp)
-				end
-			end
-		end
-		
-		-- 3. Summon Boss
-		Duel.BreakEffect()
-		local g_boss = Duel.GetMatchingGroup(Card.IsCode, tp, LOCATION_EXTRA+LOCATION_GRAVE+LOCATION_REMOVED, 0, nil, ID_BOSS)
-		
-		if #g_boss > 0 then
-			Duel.Hint(HINT_SELECTMSG,tp,HINTMSG_SPSUMMON)
-			local tc = g_boss:Select(tp,1,1,nil):GetFirst()
-			if tc then
-				if tc:IsLocation(LOCATION_GRAVE+LOCATION_REMOVED) then
-					Duel.SendtoDeck(tc,nil,SEQ_DECKTOP,REASON_EFFECT)
-				end
-				
+			-- Summon Logic (True = Ignore Summon Conditions)
+			if Duel.SpecialSummonStep(boss_token,0,tp,tp,true,false,POS_FACEUP) then
+				-- Cannot Disable Summon
 				local e1=Effect.CreateEffect(e:GetHandler())
 				e1:SetType(EFFECT_TYPE_SINGLE)
 				e1:SetCode(EFFECT_CANNOT_DISABLE_SPSUMMON)
 				e1:SetProperty(EFFECT_FLAG_CANNOT_DISABLE+EFFECT_FLAG_UNCOPYABLE)
 				e1:SetReset(RESET_EVENT+RESETS_STANDARD)
-				tc:RegisterEffect(e1,true)
+				boss_token:RegisterEffect(e1,true)
 				
-				Duel.SpecialSummon(tc,0,tp,tp,true,false,POS_FACEUP)
+				Duel.SpecialSummonComplete()
 			end
+		end
+		
+		-- 3. Opponent Draws Cards (Equal to Total Shuffled)
+		if total_shuffled > 0 then
+			Duel.BreakEffect()
+			Duel.Draw(1-tp, total_shuffled, REASON_EFFECT)
 		end
 		
 		Duel.ResetFlagEffect(tp,id)

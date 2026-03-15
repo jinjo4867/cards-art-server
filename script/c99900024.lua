@@ -17,22 +17,23 @@ function s.initial_effect(c)
 	e1:SetValue(1)
 	c:RegisterEffect(e1)
 
-	-- 2. Battle Removal (Vs Monster)
+	-- 2. Battle Removal (Player Action Banish)
 	local e2=Effect.CreateEffect(c)
 	e2:SetDescription(aux.Stringid(id,0))
 	e2:SetCategory(CATEGORY_REMOVE+CATEGORY_TODECK)
 	e2:SetType(EFFECT_TYPE_SINGLE+EFFECT_TYPE_TRIGGER_F) 
 	e2:SetCode(EVENT_BATTLED) 
+	e2:SetProperty(EFFECT_FLAG_IGNORE_IMMUNE)
 	e2:SetCondition(s.batcon)
 	e2:SetTarget(s.battg)
 	e2:SetOperation(s.batop)
 	c:RegisterEffect(e2)
 
-	-- 3. Direct Attack -> Deck Banish (New Effect)
+	-- 3. Direct Attack -> Deck Banish
 	local e3=Effect.CreateEffect(c)
 	e3:SetDescription(aux.Stringid(id,1))
 	e3:SetCategory(CATEGORY_REMOVE)
-	e3:SetType(EFFECT_TYPE_SINGLE+EFFECT_TYPE_TRIGGER_F) -- บังคับทำ (ตามคำสั่ง "banish" ไม่ใช่ "you can")
+	e3:SetType(EFFECT_TYPE_SINGLE+EFFECT_TYPE_TRIGGER_F)
 	e3:SetCode(EVENT_BATTLED)
 	e3:SetCondition(s.dircon)
 	e3:SetTarget(s.dirtg)
@@ -45,17 +46,18 @@ function s.matfilter(c)
 end
 
 -- =======================================================================
--- [Effect 2] Vs Monster: Banish Face-down -> Hand/Extra Disrupt
+-- [Effect 2] Vs Monster: Player Action Banish Face-down -> Hand/Extra Disrupt
 -- =======================================================================
 function s.batcon(e,tp,eg,ep,ev,re,r,rp)
 	local bc=e:GetHandler():GetBattleTarget()
-	return bc and bc:IsControler(1-tp) -- ต้องมีคู่ต่อสู้เป็นมอนสเตอร์
+	return bc and bc:IsControler(1-tp)
 end
 
 function s.battg(e,tp,eg,ep,ev,re,r,rp,chk)
 	if chk==0 then return true end
 	local bc=e:GetHandler():GetBattleTarget()
 	if bc then
+		-- แจ้งเตือนระบบว่าจะมีการรีมูฟ
 		Duel.SetOperationInfo(0,CATEGORY_REMOVE,bc,1,0,0)
 	end
 	Duel.SetOperationInfo(0,CATEGORY_TODECK,nil,0,1-tp,LOCATION_HAND)
@@ -66,20 +68,19 @@ function s.batop(e,tp,eg,ep,ev,re,r,rp)
 	local c=e:GetHandler()
 	local bc=c:GetBattleTarget()
 	
-	if bc then
-		if Duel.Remove(bc,POS_FACEDOWN,REASON_EFFECT)>0 then
+	if bc and bc:IsRelateToBattle() then
+		-- [แก้ไข]บังคับให้เป็นการกระทำของผู้เล่น (ทะลุการกันรีมูฟและกันเอฟเฟค)
+		if Duel.Remove(bc,POS_FACEDOWN,REASON_RULE)>0 then
 			local hg=Duel.GetFieldGroup(tp,0,LOCATION_HAND)
 			if #hg>0 then
-				-- มีการ์ดบนมือ -> สุ่มสับเข้าเด็ค
 				Duel.BreakEffect()
 				local sg=hg:RandomSelect(tp,1)
 				Duel.SendtoDeck(sg,nil,SEQ_DECKSHUFFLE,REASON_EFFECT)
 			else
-				-- มือโล่ง -> สุ่มรีมูฟ Extra Deck (Face-down)
-				local eg=Duel.GetFieldGroup(tp,0,LOCATION_EXTRA)
-				if #eg>0 then
+				local eg_ex=Duel.GetFieldGroup(tp,0,LOCATION_EXTRA)
+				if #eg_ex>0 then
 					Duel.BreakEffect()
-					local sg=eg:RandomSelect(tp,1)
+					local sg=eg_ex:RandomSelect(tp,1)
 					Duel.Remove(sg,POS_FACEDOWN,REASON_EFFECT)
 				end
 			end
@@ -91,7 +92,6 @@ end
 -- [Effect 3] Direct Attack: Deck Banish Face-down
 -- =======================================================================
 function s.dircon(e,tp,eg,ep,ev,re,r,rp)
-	-- เงื่อนไข: เราเป็นคนตี (Attacker) และ ไม่มีเป้าหมายรับการโจมตี (Direct Attack)
 	return Duel.GetAttackTarget()==nil and e:GetHandler()==Duel.GetAttacker()
 end
 
@@ -103,9 +103,7 @@ end
 function s.dirop(e,tp,eg,ep,ev,re,r,rp)
 	local g=Duel.GetFieldGroup(tp,0,LOCATION_DECK)
 	if #g>0 then
-		-- สุ่มเลือก 1 ใบจาก Deck
 		local sg=g:RandomSelect(tp,1)
-		-- รีมูฟคว่ำหน้า
 		Duel.Remove(sg,POS_FACEDOWN,REASON_EFFECT)
 	end
 end

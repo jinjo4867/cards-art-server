@@ -1,16 +1,15 @@
--- Heretic Nikke Modernia
--- ID: 99900030
+-- Heretic Nikke Indivilia
+-- ID: 99900044
 local s,id=GetID()
-local ID_MARIAN = 99900008
-local NIKKE_SET_ID = 0xc02
-local HERETIC_SET_ID = 0xc20
+local ID_NIKKE = 0xc02
+local ID_HERETIC = 0xc20
 
 function s.initial_effect(c)
 	c:EnableReviveLimit()
 
 	-- 1. Ritual Summon Procedure
 	local e1=Effect.CreateEffect(c)
-	e1:SetDescription(aux.Stringid(id,2))
+	e1:SetDescription(aux.Stringid(id,0))
 	e1:SetCategory(CATEGORY_SPECIAL_SUMMON)
 	e1:SetType(EFFECT_TYPE_IGNITION)
 	e1:SetRange(LOCATION_HAND)
@@ -31,33 +30,33 @@ function s.initial_effect(c)
 	e3:SetValue(s.defval)
 	c:RegisterEffect(e3)
 
-	-- 3. Immunity (Spell/Trap)
+	-- 3. Piercing Damage
 	local e4=Effect.CreateEffect(c)
 	e4:SetType(EFFECT_TYPE_SINGLE)
-	e4:SetCode(EFFECT_INDESTRUCTABLE_EFFECT)
-	e4:SetProperty(EFFECT_FLAG_SINGLE_RANGE)
-	e4:SetRange(LOCATION_MZONE)
-	e4:SetValue(s.indval)
+	e4:SetCode(EFFECT_PIERCE)
 	c:RegisterEffect(e4)
 
-	-- 4. Recycle Counter Trap
+	-- 4. Negate & Banish (Negate -> Random Banish Hand/GY)
 	local e5=Effect.CreateEffect(c)
-	e5:SetDescription(aux.Stringid(id,0))
-	e5:SetType(EFFECT_TYPE_IGNITION)
+	e5:SetDescription(aux.Stringid(id,1))
+	e5:SetCategory(CATEGORY_NEGATE+CATEGORY_REMOVE)
+	e5:SetType(EFFECT_TYPE_QUICK_O)
+	e5:SetCode(EVENT_CHAINING)
+	e5:SetProperty(EFFECT_FLAG_DAMAGE_STEP+EFFECT_FLAG_DAMAGE_CAL)
 	e5:SetRange(LOCATION_MZONE)
-	e5:SetCountLimit(1)
-	e5:SetTarget(s.settg)
-	e5:SetOperation(s.setop)
+	e5:SetCountLimit(1,id)
+	e5:SetCondition(s.negcon)
+	e5:SetTarget(s.negtg)
+	e5:SetOperation(s.negop)
 	c:RegisterEffect(e5)
 
-	-- 5. Anti-Chain (Punishment) - Fixed Loop
+	-- 5. Anti-Response (Punishment: Non-Heretic Only)
 	local e6=Effect.CreateEffect(c)
-	e6:SetDescription(aux.Stringid(id,1))
+	e6:SetDescription(aux.Stringid(id,2))
 	e6:SetCategory(CATEGORY_REMOVE)
-	e6:SetType(EFFECT_TYPE_QUICK_F) -- บังคับทำงาน (Mandatory) ตาม Text "If... : Banish it"
+	e6:SetType(EFFECT_TYPE_QUICK_F)
 	e6:SetCode(EVENT_CHAINING)
 	e6:SetRange(LOCATION_MZONE)
-	-- Once per Chain logic
 	e6:SetCountLimit(1,id+EFFECT_COUNT_CODE_CHAIN)
 	e6:SetCondition(s.bancon)
 	e6:SetTarget(s.bantg)
@@ -66,23 +65,17 @@ function s.initial_effect(c)
 end
 
 -- ==================================================================
--- Ritual Summon Logic
+-- Logic 1: Ritual Summon
 -- ==================================================================
 function s.mat_filter(c)
-	if not c:IsSetCard(NIKKE_SET_ID) then return false end
-	if c:IsLocation(LOCATION_GRAVE) then
-		return c:IsAbleToRemoveAsCost(POS_FACEDOWN)
-	elseif c:IsLocation(LOCATION_REMOVED) then
-		return c:IsFaceup()
-	end
-	return false
+	return (c:IsRace(RACE_MACHINE) or c:IsSetCard(ID_NIKKE)) and
+		   ((c:IsLocation(LOCATION_GRAVE) and c:IsAbleToRemoveAsCost(POS_FACEDOWN)) or
+			(c:IsLocation(LOCATION_REMOVED) and c:IsFaceup()))
 end
-
 function s.check_materials(sg)
 	if #sg~=2 then return false end
-	return sg:IsExists(Card.IsCode,1,nil,ID_MARIAN)
+	return sg:IsExists(Card.IsRace,1,nil,RACE_MACHINE) and sg:IsExists(Card.IsSetCard,1,nil,ID_NIKKE)
 end
-
 function s.rittg(e,tp,eg,ep,ev,re,r,rp,chk)
 	local c=e:GetHandler()
 	if chk==0 then
@@ -93,28 +86,18 @@ function s.rittg(e,tp,eg,ep,ev,re,r,rp,chk)
 	end
 	Duel.SetOperationInfo(0,CATEGORY_SPECIAL_SUMMON,c,1,0,0)
 end
-
 function s.ritop(e,tp,eg,ep,ev,re,r,rp)
 	local c=e:GetHandler()
 	local mg=Duel.GetMatchingGroup(s.mat_filter,tp,LOCATION_GRAVE+LOCATION_REMOVED,0,nil)
 	if Duel.GetLocationCount(tp,LOCATION_MZONE)<=0 then return end
 	if not c:IsRelateToEffect(e) then return end
-	
 	Duel.Hint(HINT_SELECTMSG,tp,HINTMSG_REMOVE)
 	local sg=mg:SelectSubGroup(tp,s.check_materials,false,2,2)
 	if sg then
 		c:SetMaterial(sg)
-		local g_gy = sg:Filter(Card.IsLocation, nil, LOCATION_GRAVE)
 		local g_rem = sg:Filter(Card.IsLocation, nil, LOCATION_REMOVED)
-		
-		if #g_gy > 0 then
-			Duel.Remove(g_gy, POS_FACEDOWN, REASON_COST+REASON_MATERIAL+REASON_RITUAL)
-		end
-		if #g_rem > 0 then
-			Duel.SendtoGrave(g_rem, REASON_RULE+REASON_RETURN)
-			Duel.Remove(g_rem, POS_FACEDOWN, REASON_COST+REASON_MATERIAL+REASON_RITUAL)
-		end
-		
+		if #g_rem > 0 then Duel.SendtoGrave(g_rem, REASON_RULE+REASON_RETURN) end
+		Duel.Remove(sg, POS_FACEDOWN, REASON_COST+REASON_MATERIAL+REASON_RITUAL)
 		Duel.BreakEffect() 
 		Duel.SpecialSummon(c,SUMMON_TYPE_RITUAL,tp,tp,false,true,POS_FACEUP)
 		c:CompleteProcedure()
@@ -122,58 +105,57 @@ function s.ritop(e,tp,eg,ep,ev,re,r,rp)
 end
 
 -- ==================================================================
--- Other Logics
+-- Logic 2: Stats
 -- ==================================================================
 function s.atkval(e,c)
 	local count = Duel.GetMatchingGroupCount(Card.IsFacedown,0,LOCATION_REMOVED,LOCATION_REMOVED,nil)
-	local bonus = count * 300
-	if bonus > 3300 then bonus = 3300 end
-	return bonus
+	return math.min(count * 300, 3000)
 end
-
 function s.defval(e,c)
 	local count = Duel.GetMatchingGroupCount(Card.IsFacedown,0,LOCATION_REMOVED,LOCATION_REMOVED,nil)
-	local bonus = count * 300
-	if bonus > 3300 then bonus = 3300 end
-	return -bonus
+	return -math.min(count * 300, 3000)
 end
 
-function s.indval(e,re,rp)
-	return re:IsActiveType(TYPE_SPELL+TYPE_TRAP)
+-- ==================================================================
+-- Logic 4: Negate & Random Banish Hand/GY (Updated)
+-- ==================================================================
+function s.negcon(e,tp,eg,ep,ev,re,r,rp)
+	return rp~=tp and Duel.IsChainNegatable(ev)
 end
 
-function s.setfilter(c)
-	return (c:IsSetCard(NIKKE_SET_ID) or c:IsSetCard(HERETIC_SET_ID)) 
-		and c:IsType(TYPE_TRAP) and c:IsType(TYPE_COUNTER) and c:IsSSetable()
+function s.negtg(e,tp,eg,ep,ev,re,r,rp,chk)
+	if chk==0 then return true end
+	Duel.SetOperationInfo(0,CATEGORY_NEGATE,eg,1,0,0)
+	Duel.SetOperationInfo(0,CATEGORY_REMOVE,nil,1,1-tp,LOCATION_HAND+LOCATION_GRAVE)
 end
-function s.settg(e,tp,eg,ep,ev,re,r,rp,chk)
-	if chk==0 then return Duel.GetLocationCount(tp,LOCATION_SZONE)>0
-		and Duel.IsExistingMatchingCard(s.setfilter,tp,LOCATION_GRAVE,0,1,nil) end
-end
-function s.setop(e,tp,eg,ep,ev,re,r,rp)
-	local g=Duel.SelectMatchingCard(tp,s.setfilter,tp,LOCATION_GRAVE,0,1,1,nil)
-	local tc=g:GetFirst()
-	if tc then
-		Duel.SSet(tp,tc)
-		local e1=Effect.CreateEffect(e:GetHandler())
-		e1:SetType(EFFECT_TYPE_SINGLE)
-		e1:SetCode(EFFECT_TRAP_ACT_IN_SET_TURN)
-		e1:SetProperty(EFFECT_FLAG_SET_AVAILABLE)
-		e1:SetReset(RESET_EVENT+RESETS_STANDARD)
-		tc:RegisterEffect(e1)
+
+function s.negop(e,tp,eg,ep,ev,re,r,rp)
+	-- 1. Negate Activation first
+	if Duel.NegateActivation(ev) then
+		-- 2. Random Banish from Hand/GY
+		local g_hand = Duel.GetFieldGroup(tp,0,LOCATION_HAND)
+		local g_gy = Duel.GetFieldGroup(tp,0,LOCATION_GRAVE)
+		g_hand:Merge(g_gy) -- Combine Hand and GY
+		
+		if #g_hand > 0 then
+			-- Random Select 1
+			local sg = g_hand:RandomSelect(tp,1)
+			-- Banish Face-down
+			Duel.Remove(sg,POS_FACEDOWN,REASON_EFFECT)
+		end
 	end
 end
 
--- [FIXED] Anti-Chain Logic: Prevent Heretic Loop
+-- ==================================================================
+-- Logic 5: Anti-Response
+-- ==================================================================
 function s.bancon(e,tp,eg,ep,ev,re,r,rp)
-	-- 1. เช็คว่าเป็น Chain Link ถัดไปจากการ์ดใบนี้หรือไม่ (Response check)
 	if ev<2 then return false end
 	local pe=Duel.GetChainInfo(ev-1,CHAININFO_TRIGGERING_EFFECT)
 	if not pe or pe:GetHandler()~=e:GetHandler() then return false end
-
-	-- 2. [NEW] การ์ดที่เชนมา ต้อง "ไม่ใช่" Heretic (non-Heretic)
+	
 	local rc=re:GetHandler()
-	if rc:IsSetCard(HERETIC_SET_ID) then return false end
+	if rc:IsSetCard(ID_HERETIC) then return false end
 
 	return true
 end

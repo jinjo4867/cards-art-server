@@ -17,7 +17,7 @@ s.skill_map = {
 function s.initial_effect(c)
 	-- Activate (Quick-Play)
 	local e1=Effect.CreateEffect(c)
-	e1:SetCategory(CATEGORY_TOHAND+CATEGORY_TOKEN+CATEGORY_REMOVE)
+	e1:SetCategory(CATEGORY_TODECK+CATEGORY_TOKEN)
 	e1:SetType(EFFECT_TYPE_ACTIVATE)
 	e1:SetCode(EVENT_FREE_CHAIN)
 	e1:SetCountLimit(1,id,EFFECT_COUNT_CODE_OATH)
@@ -67,8 +67,15 @@ end
 
 function s.target(e,tp,eg,ep,ev,re,r,rp,chk)
 	if chk==0 then return true end
+	-- แจ้งว่าเราจะเคลียร์โซน S/T ของเรา
+	local g_st = Duel.GetMatchingGroup(s.st_filter,tp,LOCATION_SZONE,0,nil)
+	Duel.SetOperationInfo(0,CATEGORY_TODECK,g_st,#g_st,0,0)
 	Duel.SetOperationInfo(0,CATEGORY_TOKEN,nil,e:GetLabel(),0,0)
-	Duel.SetOperationInfo(0,CATEGORY_TOHAND,nil,e:GetLabel(),tp,0)
+end
+
+-- Filter: หาการ์ดในโซนเวทย์กับดัก (Main S/T Zone) ไม่รวม Field Spell
+function s.st_filter(c)
+	return c:GetSequence() < 5
 end
 
 -- ============================================================================
@@ -81,61 +88,46 @@ function s.activate(e,tp,eg,ep,ev,re,r,rp)
 	if #g < count then count = #g end
 	if count <= 0 then return end
 	
+	-- 1. เลือก Nikke ตามจำนวนที่จ่าย
 	Duel.Hint(HINT_SELECTMSG,tp,HINTMSG_SELECT)
 	local sg=g:Select(tp,count,count,nil)
-	local tokens = Group.CreateGroup()
 	
+	-- 2. เคลียร์โซนเวทย์/กับดัก (Main S/T Zone) เข้าเด็ค
+	local g_st = Duel.GetMatchingGroup(s.st_filter,tp,LOCATION_SZONE,0,nil)
+	if #g_st > 0 then
+		Duel.SendtoDeck(g_st,nil,SEQ_DECKSHUFFLE,REASON_EFFECT)
+		Duel.BreakEffect() -- คั่นจังหวะ
+	end
+
+	-- 3. สร้าง Token และ Set ลงสนาม
 	for tc in aux.Next(sg) do
 		local skill_id = s.skill_map[tc:GetCode()]
 		if skill_id then
 			local token = Duel.CreateToken(tp, skill_id)
-			tokens:AddCard(token)
+			
+			-- Set ลงสนาม
+			if Duel.SSet(tp, token) > 0 then
+				-- [LOGIC] ทำให้เปิดได้เลยในเทิร์นนี้ (ทั้ง Quick-Play และ Trap)
+				local e1=Effect.CreateEffect(e:GetHandler())
+				e1:SetType(EFFECT_TYPE_SINGLE)
+				e1:SetCode(EFFECT_QP_ACT_IN_SET_TURN) -- สำหรับ Quick-Play Spell
+				e1:SetProperty(EFFECT_FLAG_SET_AVAILABLE)
+				e1:SetReset(RESET_EVENT+RESETS_STANDARD)
+				token:RegisterEffect(e1)
+				
+				local e2=e1:Clone()
+				e2:SetCode(EFFECT_TRAP_ACT_IN_SET_TURN) -- สำหรับ Trap
+				token:RegisterEffect(e2)
+			end
 		end
 	end
 	
-	if #tokens > 0 then
-		-- [LOGIC FIX] 1. ส่งไปโซนรีมูฟแบบหงายหน้าก่อน
-		if Duel.Remove(tokens, POS_FACEUP, REASON_EFFECT) > 0 then
-			
-			Duel.BreakEffect() -- คั่นจังหวะเพื่อรีเฟรชภาพ
-			
-			-- [LOGIC FIX] 2. ดึงจากโซนรีมูฟขึ้นมือ
-			-- กรองใบที่พุ่งไปอยู่ในโซนรีมูฟจริงๆ
-			local g_in_removed = tokens:Filter(Card.IsLocation, nil, LOCATION_REMOVED)
-			
-			if #g_in_removed > 0 then
-				Duel.SendtoHand(g_in_removed, nil, REASON_EFFECT)
-				Duel.ConfirmCards(1-tp, g_in_removed)
-				Duel.ShuffleHand(tp) 
-			end
-		end
-
-		-- [Protection] ป้องกันมือ
-		local e1=Effect.CreateEffect(e:GetHandler())
-		e1:SetType(EFFECT_TYPE_FIELD)
-		e1:SetCode(EFFECT_CANNOT_DISCARD_HAND)
-		e1:SetProperty(EFFECT_FLAG_PLAYER_TARGET)
-		e1:SetTargetRange(1,0)
-		e1:SetValue(1)
-		e1:SetReset(RESET_PHASE+PHASE_END+RESET_SELF_TURN,2) 
-		Duel.RegisterEffect(e1,tp)
-		
-		local e2=e1:Clone()
-		e2:SetCode(EFFECT_CANNOT_REMOVE)
-		e2:SetTarget(s.handrmlimit)
-		Duel.RegisterEffect(e2,tp)
-
-		-- [PENALTY FIX]
-		local e3=Effect.CreateEffect(e:GetHandler())
-		e3:SetType(EFFECT_TYPE_FIELD+EFFECT_TYPE_CONTINUOUS)
-		e3:SetCode(EVENT_TO_GRAVE)
-		e3:SetOperation(s.banish_op)
-		Duel.RegisterEffect(e3,tp)
-	end
-end
-
-function s.handrmlimit(e,c,tp,r,re)
-	return c:IsLocation(LOCATION_HAND) and re and re:GetOwnerPlayer()~=e:GetHandlerPlayer()
+	-- [PENALTY FIX] คงไว้ตามเดิม (Burst Skill ลงสุสาน -> รีมูฟคว่ำ)
+	local e3=Effect.CreateEffect(e:GetHandler())
+	e3:SetType(EFFECT_TYPE_FIELD+EFFECT_TYPE_CONTINUOUS)
+	e3:SetCode(EVENT_TO_GRAVE)
+	e3:SetOperation(s.banish_op)
+	Duel.RegisterEffect(e3,tp)
 end
 
 function s.banish_op(e,tp,eg,ep,ev,re,r,rp)

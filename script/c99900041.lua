@@ -2,6 +2,7 @@
 -- ID: 99900041
 local s,id=GetID()
 local ID_BURST = 99900040 -- Burst: Asceticism
+local ID_NIKKE = 0xc02	-- Set code for Nikke
 
 function s.initial_effect(c)
 	-- Link / Pendulum Setup
@@ -9,7 +10,7 @@ function s.initial_effect(c)
 	aux.EnablePendulumAttribute(c,false)
 
 	-- ==================================================================
-	-- [PENDULUM EFFECTS] (All Continuous Now)
+	-- [PENDULUM EFFECTS]
 	-- ==================================================================
 	-- 1. No Battle Damage (Continuous)
 	local e1=Effect.CreateEffect(c)
@@ -59,7 +60,17 @@ function s.initial_effect(c)
 	e5:SetOperation(s.return_op)
 	c:RegisterEffect(e5)
 
-	-- 6. Summon Limit (Continuous)
+	-- 6. Immunity to Negation (P-Zone Only)
+	-- กันโดนเนเกจเอฟเฟคขณะอยู่ในโซน Pendulum (Absolute Immunity)
+	local e_immune=Effect.CreateEffect(c)
+	e_immune:SetType(EFFECT_TYPE_SINGLE)
+	e_immune:SetProperty(EFFECT_FLAG_SINGLE_RANGE)
+	e_immune:SetRange(LOCATION_PZONE)
+	e_immune:SetCode(EFFECT_IMMUNE_EFFECT)
+	e_immune:SetValue(s.negate_immune_filter)
+	c:RegisterEffect(e_immune)
+
+	-- 7. Summon Limit (Continuous)
 	local e_plimit1 = Effect.CreateEffect(c)
 	e_plimit1:SetType(EFFECT_TYPE_FIELD)
 	e_plimit1:SetRange(LOCATION_PZONE)
@@ -78,7 +89,7 @@ function s.initial_effect(c)
 	e_plimit4:SetCode(EFFECT_CANNOT_MSET)
 	c:RegisterEffect(e_plimit4)
 
-	-- 7. Pendulum Redirect (Continuous)
+	-- 8. Pendulum Redirect (Continuous)
 	local e_predirect = Effect.CreateEffect(c)
 	e_predirect:SetType(EFFECT_TYPE_SINGLE+EFFECT_TYPE_CONTINUOUS)
 	e_predirect:SetCode(EVENT_LEAVE_FIELD_P)
@@ -282,10 +293,8 @@ end
 function s.respawn_cost(e,tp,eg,ep,ev,re,r,rp,chk)
 	local g=Duel.GetFieldGroup(tp,LOCATION_DECK,0)
 	local count = math.ceil(#g/2)
-	-- แก้ไขตรงนี้: เปลี่ยน POS_FACEDOWN เป็น POS_FACEUP
 	if chk==0 then return #g>0 and g:IsExists(Card.IsAbleToRemoveAsCost,count,nil,POS_FACEUP) end
 	local g_rem=g:RandomSelect(tp,count)
-	-- แก้ไขตรงนี้: เปลี่ยน POS_FACEDOWN เป็น POS_FACEUP
 	Duel.Remove(g_rem,POS_FACEUP,REASON_COST)
 end
 
@@ -300,4 +309,19 @@ function s.respawn_op(e,tp,eg,ep,ev,re,r,rp)
 	if c:IsRelateToEffect(e) and Duel.GetLocationCountFromEx(tp,tp,c)>0 then
 		Duel.SpecialSummon(c,0,tp,tp,false,false,POS_FACEUP)
 	end
+end
+
+-- ==================================================================
+-- [Immunity Filter (Absolute Immunity)]
+-- ==================================================================
+function s.negate_immune_filter(e,te)
+	-- [LOCKED] ลบบรรทัดที่เช็ค ID_NIKKE ออก เพื่อให้กันทุกอย่างจริงๆ
+	-- if te:GetOwner():IsSetCard(ID_NIKKE) then return false end
+	
+	if (te:GetType() & EFFECT_TYPE_ACTIONS) ~= 0 then
+		local cat = te:GetCategory()
+		return (cat & CATEGORY_DISABLE)~=0 or (cat & CATEGORY_NEGATE)~=0
+	end
+	local ec = te:GetCode()
+	return ec==EFFECT_DISABLE or ec==EFFECT_DISABLE_EFFECT or ec==EFFECT_DISABLE_CHAIN
 end

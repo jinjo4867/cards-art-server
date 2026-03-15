@@ -66,7 +66,7 @@ function s.initial_effect(c)
 	e_lnk:SetCode(EFFECT_CANNOT_BE_LINK_MATERIAL)
 	c:RegisterEffect(e_lnk)
 
-	-- 4. Hand Trap from Extra Deck (> 7 Actions)
+	-- 4. Hand Trap from Extra Deck (> 8 Actions)
 	local e6=Effect.CreateEffect(c)
 	e6:SetDescription(aux.Stringid(id,0))
 	e6:SetCategory(CATEGORY_SPECIAL_SUMMON)
@@ -90,7 +90,7 @@ function s.initial_effect(c)
 	e7:SetOperation(s.floodgate_op)
 	c:RegisterEffect(e7)
 
-	-- 6. Tag Out (Quick Effect)
+	-- 6. [แก้ไข] Banish Self + Player Action Banish Opponent & SS (No Limit)
 	local e8=Effect.CreateEffect(c)
 	e8:SetDescription(aux.Stringid(id,2))
 	e8:SetCategory(CATEGORY_REMOVE+CATEGORY_SPECIAL_SUMMON)
@@ -98,6 +98,7 @@ function s.initial_effect(c)
 	e8:SetCode(EVENT_FREE_CHAIN)
 	e8:SetRange(LOCATION_MZONE)
 	e8:SetHintTiming(0,TIMINGS_CHECK_MONSTER_E)
+	-- ลบ SetCountLimit ออก
 	e8:SetTarget(s.tag_tg)
 	e8:SetOperation(s.tag_op)
 	c:RegisterEffect(e8)
@@ -188,7 +189,7 @@ end
 -- Trap from Extra Logic
 function s.ct_spcon(e,tp,eg,ep,ev,re,r,rp)
 	return (Duel.GetCurrentPhase()==PHASE_MAIN1 or Duel.GetCurrentPhase()==PHASE_MAIN2)
-		and Duel.GetFlagEffect(1-tp,id) >= 7
+		and Duel.GetFlagEffect(1-tp,id) >= 8
 end
 function s.ct_sptg(e,tp,eg,ep,ev,re,r,rp,chk)
 	if chk==0 then return Duel.GetLocationCountFromEx(tp)>0 
@@ -203,9 +204,7 @@ function s.ct_spop(e,tp,eg,ep,ev,re,r,rp)
 	end
 end
 
--- =======================================================================
--- [FIXED] Floodgate Reset Logic (Absolute Lock)
--- =======================================================================
+-- Floodgate Reset Logic
 function s.floodgate_tg(e,tp,eg,ep,ev,re,r,rp,chk)
 	if chk==0 then return true end
 	Duel.SetChainLimit(aux.FALSE)
@@ -215,8 +214,6 @@ function s.floodgate_op(e,tp,eg,ep,ev,re,r,rp)
 	local c=e:GetHandler()
 	local reset_flag = RESET_PHASE+PHASE_END
 	
-	-- 1. Lock ALL Summons (Special, Normal, Set, Flip)
-	-- ห้าม Special Summon
 	local e1=Effect.CreateEffect(c)
 	e1:SetType(EFFECT_TYPE_FIELD)
 	e1:SetCode(EFFECT_CANNOT_SPECIAL_SUMMON)
@@ -225,22 +222,18 @@ function s.floodgate_op(e,tp,eg,ep,ev,re,r,rp)
 	e1:SetReset(reset_flag)
 	Duel.RegisterEffect(e1,tp)
 
-	-- ห้าม Normal Summon
 	local e1b=e1:Clone()
 	e1b:SetCode(EFFECT_CANNOT_SUMMON)
 	Duel.RegisterEffect(e1b,tp)
 
-	-- ห้าม Set (คว่ำมอนสเตอร์)
 	local e1c=e1:Clone()
 	e1c:SetCode(EFFECT_CANNOT_MSET)
 	Duel.RegisterEffect(e1c,tp)
 
-	-- ห้าม Flip Summon
 	local e1d=e1:Clone()
 	e1d:SetCode(EFFECT_CANNOT_FLIP_SUMMON)
 	Duel.RegisterEffect(e1d,tp)
 	
-	-- 2. Cannot Activate Monster Effects (ห้ามกดใช้เอฟเฟกต์)
 	local e2=Effect.CreateEffect(c)
 	e2:SetType(EFFECT_TYPE_FIELD)
 	e2:SetCode(EFFECT_CANNOT_ACTIVATE)
@@ -250,7 +243,6 @@ function s.floodgate_op(e,tp,eg,ep,ev,re,r,rp)
 	e2:SetReset(reset_flag)
 	Duel.RegisterEffect(e2,tp)
 	
-	-- 3. Negate Board (ล้างกระดานที่อยู่ก่อนหน้า)
 	local g=Duel.GetMatchingGroup(Card.IsFaceup,tp,0,LOCATION_ONFIELD,nil)
 	if #g>0 then
 		Duel.Hint(HINT_CARD,0,id)
@@ -273,68 +265,87 @@ function s.aclimit(e,re,tp)
 	return re:IsActiveType(TYPE_MONSTER)
 end
 
--- Tag Out Logic
-function s.tag_filter(c)
-	return c:IsAbleToRemove()
+-- =======================================================================
+-- [REWORKED] Self Banish & Player Action Banish Logic
+-- =======================================================================
+function s.sp_nikke_filter(c,e,tp,mc)
+	if not (c:IsSetCard(NIKKE_SET_ID) and c:IsType(TYPE_MONSTER) and c:IsCanBeSpecialSummoned(e,0,tp,true,false)) then return false end
+	-- mc คือตัวที่กำลังจะถูกส่งออกนอกเกมเพื่อเคลียร์โซน
+	if c:IsLocation(LOCATION_EXTRA) then
+		return Duel.GetLocationCountFromEx(tp,tp,mc,c)>0
+	else
+		return Duel.GetMZoneCount(tp,mc)>0
+	end
 end
-function s.sp_nikke_filter(c,e,tp)
-	return c:IsSetCard(NIKKE_SET_ID) 
-		and c:IsCanBeSpecialSummoned(e,0,tp,true,false)
-		and c:IsType(TYPE_MONSTER)
-end
+
 function s.attach_filter(c)
 	return c:IsSetCard(NIKKE_SET_ID) and c:IsType(TYPE_MONSTER)
 end
+
 function s.tag_tg(e,tp,eg,ep,ev,re,r,rp,chk)
 	local c=e:GetHandler()
 	if chk==0 then 
-		if not Duel.IsExistingMatchingCard(s.tag_filter,tp,LOCATION_ONFIELD,LOCATION_ONFIELD,1,c) then return false end
-		local has_target = Duel.IsExistingMatchingCard(s.sp_nikke_filter,tp,LOCATION_DECK+LOCATION_EXTRA,0,1,nil,e,tp)
-		if not has_target then return false end
-		return Duel.GetLocationCountFromEx(tp,tp,c)>0 or Duel.GetMZoneCount(tp,c)>0
+		return c:IsAbleToRemove() 
+		   and Duel.GetFieldGroupCount(1-tp,LOCATION_ONFIELD,0)>0
+		   and Duel.IsExistingMatchingCard(s.sp_nikke_filter,tp,LOCATION_DECK+LOCATION_EXTRA,0,1,nil,e,tp,c)
 	end
-	Duel.Hint(HINT_SELECTMSG,tp,HINTMSG_REMOVE)
-	local g=Duel.SelectMatchingCard(tp,s.tag_filter,tp,LOCATION_ONFIELD,LOCATION_ONFIELD,1,1,c)
-	g:AddCard(c)
-	Duel.SetTargetCard(g)
-	Duel.SetOperationInfo(0,CATEGORY_REMOVE,g,2,0,0)
+	Duel.SetOperationInfo(0,CATEGORY_REMOVE,c,1,0,0)
+	Duel.SetOperationInfo(0,CATEGORY_REMOVE,nil,1,1-tp,LOCATION_ONFIELD)
 	Duel.SetOperationInfo(0,CATEGORY_SPECIAL_SUMMON,nil,1,tp,LOCATION_DECK+LOCATION_EXTRA)
 	Duel.SetChainLimit(aux.FALSE)
 end
+
 function s.tag_op(e,tp,eg,ep,ev,re,r,rp)
 	local c=e:GetHandler()
-	local g=Duel.GetChainInfo(0,CHAININFO_TARGET_CARDS)
-	local tg=g:Filter(Card.IsRelateToEffect,nil,e)
-	if #tg>0 and Duel.Remove(tg,POS_FACEUP,REASON_EFFECT)>0 then
-		if Duel.GetLocationCount(tp,LOCATION_MZONE)<=0 then return end
-		Duel.Hint(HINT_SELECTMSG,tp,HINTMSG_SPSUMMON)
-		local sg=Duel.SelectMatchingCard(tp,s.sp_nikke_filter,tp,LOCATION_DECK+LOCATION_EXTRA,0,1,1,nil,e,tp)
-		local tc=sg:GetFirst()
-		if tc and Duel.SpecialSummon(tc,0,tp,tp,true,false,POS_FACEUP)>0 then
-			local e1=Effect.CreateEffect(c)
-			e1:SetType(EFFECT_TYPE_SINGLE)
-			e1:SetCode(EFFECT_SET_ATTACK)
-			e1:SetValue(tc:GetAttack()/2)
-			e1:SetReset(RESET_EVENT+RESETS_STANDARD+RESET_PHASE+PHASE_END)
-			tc:RegisterEffect(e1)
-			local e2=e1:Clone()
-			e2:SetCode(EFFECT_SET_DEFENSE)
-			e2:SetValue(tc:GetDefense()/2)
-			tc:RegisterEffect(e2)
-			local e3=Effect.CreateEffect(c)
-			e3:SetType(EFFECT_TYPE_SINGLE)
-			e3:SetCode(EFFECT_DISABLE)
-			e3:SetReset(RESET_EVENT+RESETS_STANDARD+RESET_PHASE+PHASE_END)
-			tc:RegisterEffect(e3)
-			local e4=Effect.CreateEffect(c)
-			e4:SetType(EFFECT_TYPE_SINGLE)
-			e4:SetCode(EFFECT_DISABLE_EFFECT)
-			e4:SetReset(RESET_EVENT+RESETS_STANDARD+RESET_PHASE+PHASE_END)
-			tc:RegisterEffect(e4)
-			if tc:IsType(TYPE_XYZ) then
-				Duel.Hint(HINT_SELECTMSG,tp,HINTMSG_XMATERIAL)
-				local matg=Duel.SelectMatchingCard(tp,s.attach_filter,tp,LOCATION_DECK+LOCATION_GRAVE,0,1,1,nil)
-				if #matg>0 then Duel.Overlay(tc,matg) end
+	if not c:IsRelateToEffect(e) then return end
+	
+	-- 1. รีมูฟตัวเองออกจากเกมก่อนด้วยเอฟเฟค
+	if Duel.Remove(c,POS_FACEUP,REASON_EFFECT)>0 then
+		-- 2. บังคับอีกฝ่ายเลือกรีมูฟการ์ดตัวเอง
+		local opp_g=Duel.GetFieldGroup(1-tp,LOCATION_ONFIELD,0)
+		if #opp_g>0 then
+			Duel.Hint(HINT_SELECTMSG,1-tp,HINTMSG_REMOVE)
+			local rg=opp_g:Select(1-tp,1,1,nil)
+			if #rg>0 and Duel.Remove(rg,POS_FACEUP,REASON_RULE)>0 then
+				
+				-- 3. จากนั้นอัญเชิญพิเศษ (ส่ง nil เข้าไปเพราะตัวเก่าไม่อยู่แล้ว โซนว่างแล้ว)
+				Duel.Hint(HINT_SELECTMSG,tp,HINTMSG_SPSUMMON)
+				local sg=Duel.SelectMatchingCard(tp,s.sp_nikke_filter,tp,LOCATION_DECK+LOCATION_EXTRA,0,1,1,nil,e,tp,nil)
+				local tc=sg:GetFirst()
+				
+				if tc and Duel.SpecialSummon(tc,0,tp,tp,true,false,POS_FACEUP)>0 then
+					local e1=Effect.CreateEffect(c)
+					e1:SetType(EFFECT_TYPE_SINGLE)
+					e1:SetCode(EFFECT_SET_ATTACK)
+					e1:SetValue(tc:GetAttack()/2)
+					e1:SetReset(RESET_EVENT+RESETS_STANDARD+RESET_PHASE+PHASE_END)
+					tc:RegisterEffect(e1)
+					
+					if not tc:IsType(TYPE_LINK) then
+						local e2=e1:Clone()
+						e2:SetCode(EFFECT_SET_DEFENSE)
+						e2:SetValue(tc:GetDefense()/2)
+						tc:RegisterEffect(e2)
+					end
+					
+					local e3=Effect.CreateEffect(c)
+					e3:SetType(EFFECT_TYPE_SINGLE)
+					e3:SetCode(EFFECT_DISABLE)
+					e3:SetReset(RESET_EVENT+RESETS_STANDARD+RESET_PHASE+PHASE_END)
+					tc:RegisterEffect(e3)
+					
+					local e4=Effect.CreateEffect(c)
+					e4:SetType(EFFECT_TYPE_SINGLE)
+					e4:SetCode(EFFECT_DISABLE_EFFECT)
+					e4:SetReset(RESET_EVENT+RESETS_STANDARD+RESET_PHASE+PHASE_END)
+					tc:RegisterEffect(e4)
+					
+					if tc:IsType(TYPE_XYZ) then
+						Duel.Hint(HINT_SELECTMSG,tp,HINTMSG_XMATERIAL)
+						local matg=Duel.SelectMatchingCard(tp,s.attach_filter,tp,LOCATION_DECK+LOCATION_GRAVE,0,1,1,nil)
+						if #matg>0 then Duel.Overlay(tc,matg) end
+					end
+				end
 			end
 		end
 	end
